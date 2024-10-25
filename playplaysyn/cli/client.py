@@ -5,16 +5,15 @@ if __name__ == "__main__": # for debugging
     __package__ = 'playplaysyn.cli'
 
 import os
-import json
-import base64
 import asyncio
+import pyaudio
 
 from aiossechat import aiosseclient, DefaultSSEType
 from typing import Final, TypeAlias
 from pydub import AudioSegment
 
-from ..data_types import Event, ChatStatus, Audio, Image, ChatMsgType, ChatMsg
 from ..common_utils import logger
+from ..data_types import Event, ChatStatus, Audio, Image, ChatMsgType, ChatMsg, AudioChunk
 
 DEFAULT_BASE_URL: Final[str] = 'api.thinkthinksyn.com/aiw'
 DEFAULT_CHAT_URL: Final[str] = 'chat'
@@ -28,6 +27,8 @@ def _get_url(url: str, base:str=DEFAULT_BASE_URL) -> str:
     return f'https://{base}/{url}'
 
 _AvailableMsgType: TypeAlias = ChatMsg | str | tuple[str|bytes|Audio|Image, ChatMsgType] | Audio | Image
+
+
 
 class PPSClient:
     '''Client for accessing PlayPlaySyn's AI-Character service.'''
@@ -68,7 +69,7 @@ class PPSClient:
     Event[bytes]
     When chat audio chunks is received from character, this event will be triggered.
     You can register both sync and async functions to this event.
-    Note: Each chunk is a wav chunk without header. Wav is in 16000Hz.
+    Note: Each chunk is a wav chunk without header. Wav is in 24000Hz.
     '''
     
     on_emotion: Event
@@ -114,10 +115,10 @@ class PPSClient:
         self.on_chat_status = Event(ChatStatus)
         self.on_chat_text = Event(str)
         self.on_chat_text_chunk = Event(str)
-        self.on_chat_audio = Event(bytes)
+        self.on_chat_audio = Event(Audio)
         self.on_chat_audio_chunk = Event(bytes)
         self.on_emotion = Event(str)
-        
+
     async def chat(
         self, 
         *msgs: _AvailableMsgType, 
@@ -179,9 +180,10 @@ class PPSClient:
                             await self.on_chat_text_chunk.async_invoke(c)
                     elif event in ('audio', 'speech', 'sound', 'voice'):
                         for c in datas:
-                            data = base64.b64decode(c)
-                            full_audio += data
-                            await self.on_chat_audio_chunk.async_invoke(data)
+                            data = AudioChunk.model_validate_json(c)
+                            data_bytes = data.data_bytes
+                            full_audio += data_bytes
+                            await self.on_chat_audio_chunk.async_invoke(data_bytes)
                     elif event in ('emotion', 'emo'):
                         for c in datas:    # actually there should be only one content
                             await self.on_emotion.async_invoke(c)
@@ -189,7 +191,7 @@ class PPSClient:
             if full_text:
                 tasks.append(self.on_chat_text.async_invoke(full_text))
             if full_audio:
-                audio = AudioSegment(data=full_audio, sample_width=2, frame_rate=16000, channels=1)
+                audio = AudioSegment(data=full_audio, sample_width=2, frame_rate=24000, channels=1)
                 audio = Audio.Load(audio)
                 tasks.append(self.on_chat_audio.async_invoke(audio))
             if tasks:
@@ -207,9 +209,23 @@ __all__ = ['PPSClient']
 
 if __name__ == '__main__':
     from functools import partial
+    
     print_msg = partial(print, end='')
+    
+    def play_audio(audio: Audio):
+        WIDTH, CHANNELS, RATE = 2, 1, 24000
+        player = pyaudio.PyAudio()
+        stream = player.open(format=player.get_format_from_width(WIDTH), 
+                             channels=CHANNELS, 
+                             rate=RATE, 
+                             output=True)
+        stream.write(audio.to_bytes())
+        stream.stop_stream()
+        stream.close()
+        player.terminate()
     
     client = PPSClient(chat_url='https://api.thinkthinksyn.com/tts/ai/chat')
     client.on_chat_text_chunk.add_listener(print_msg)
+    client.on_chat_audio.add_listener(play_audio)
     
     asyncio.run(client.chat('hi', return_audio=True))

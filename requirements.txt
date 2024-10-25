@@ -5,3 +5,4 @@ aiohttp
 pydantic
 numpy
 colorama
+pyaudio

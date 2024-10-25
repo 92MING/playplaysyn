@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 from pydub import AudioSegment
 from typing_extensions import Self
+from pydantic import BaseModel
 from pydantic_core import core_schema
 from typing import TYPE_CHECKING, TypeAlias, Literal, overload
 
@@ -158,5 +159,19 @@ class _AudioRetWrapper:
             return Audio.CastAudio(r)
         return r
 
+class AudioChunk(BaseModel):
+    '''CLass for receiving chunk audio data from server'''
+    data: str
+    '''base64 encoded audio data'''
+    end: bool
+    '''whether the audio is the last chunk'''
+    stage: int
+    '''stage of the audio generation process, for internal debug only.'''
 
-__all__ = ['Audio', 'get_audio']
+    @property
+    def data_bytes(self):
+        '''get the audio data in bytes format'''
+        return base64.b64decode(self.data)
+
+
+__all__ = ['Audio', 'get_audio', 'AudioChunk']
