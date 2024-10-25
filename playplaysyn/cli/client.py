@@ -48,26 +48,26 @@ class PPSClient:
     on_chat_text: Event
     '''
     Event[str]
-    When all chat texts is received from character, this event will be triggered.
+    When all chat texts is received, this event will be triggered.
     You can register both sync and async functions to this event.
     '''
     on_chat_text_chunk: Event
     '''
     Event[str]
-    When chat text chunk is received from character, this event will be triggered.
+    When chat text chunk is received, this event will be triggered.
     You can register both sync and async functions to this event.
     '''
     
     on_chat_audio: Event
     '''
     Event[Audio]
-    When all chat audio chunks is received from character, this event will be triggered.
+    When all chat audio chunks in 1 sentence has been received, this event will be triggered.
     You can register both sync and async functions to this event.
     '''
     on_chat_audio_chunk: Event
     '''
     Event[bytes]
-    When chat audio chunks is received from character, this event will be triggered.
+    When chat audio chunks is received, this event will be triggered.
     You can register both sync and async functions to this event.
     Note: Each chunk is a wav chunk without header. Wav is in 24000Hz.
     '''
@@ -184,18 +184,16 @@ class PPSClient:
                             data_bytes = data.data_bytes
                             full_audio += data_bytes
                             await self.on_chat_audio_chunk.async_invoke(data_bytes)
+                            if data.end:
+                                audio = AudioSegment(data=full_audio, sample_width=2, frame_rate=24000, channels=1)
+                                audio = Audio.Load(audio)
+                                await self.on_chat_audio.async_invoke(audio)
+                                full_audio = b''
                     elif event in ('emotion', 'emo'):
                         for c in datas:    # actually there should be only one content
                             await self.on_emotion.async_invoke(c)
-            tasks = []
-            if full_text:
-                tasks.append(self.on_chat_text.async_invoke(full_text))
-            if full_audio:
-                audio = AudioSegment(data=full_audio, sample_width=2, frame_rate=24000, channels=1)
-                audio = Audio.Load(audio)
-                tasks.append(self.on_chat_audio.async_invoke(audio))
-            if tasks:
-                await asyncio.gather(*tasks)
+            
+            await self.on_chat_text.async_invoke(full_text)
             await self.on_chat_status.async_invoke(ChatStatus.END)
             
         except (StopAsyncIteration, GeneratorExit):
@@ -203,7 +201,7 @@ class PPSClient:
         except Exception as e:
             logger.error(f'{type(e).__name__}: {e}')
 
-        
+
 __all__ = ['PPSClient']
 
 
