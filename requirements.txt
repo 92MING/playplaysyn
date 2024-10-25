@@ -1,0 +1,7 @@
+aio-sse-chat
+pydub
+typeguard
+aiohttp
+pydantic
+numpy
+colorama
