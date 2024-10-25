@@ -66,7 +66,12 @@ def _func_param_type_check(func:Callable, *args, **kwargs):
 
 def _get_func_arg_count(func:Callable):
     '''get the count of args of a function'''
-    return len(signature(func).parameters)
+    try:
+        return len(signature(func).parameters)
+    except ValueError as e:
+        if 'no signature' in str(e):
+            return -1   # fail to get signature
+        raise e
 
 def _cls_is_abs(cls):
     r = isabstract(cls)
@@ -232,9 +237,10 @@ class Event:
     def _checkListener(self, listener:Callable):
         if self._no_check:
             return
-        elif _get_func_arg_count(listener) == 0:    # 0 args can always be accepted
+        arg_count = _get_func_arg_count(listener)  
+        if arg_count == 0:    # 0 args can always be accepted
             return
-        elif not _func_param_type_check(listener, *self.args):
+        if arg_count !=-1 and not _func_param_type_check(listener, *self.args): # when -1, means fail to get signature
             raise Exception("Invalid type of listener's args. Expected: " + str(self.args))
         
     def add_listener(self, listener:Callable | Iterable[Callable]):

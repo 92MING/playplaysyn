@@ -5,10 +5,11 @@ if __name__ == "__main__": # for debugging
     __package__ = 'playplaysyn.cli'
 
 import os
+import json
 import base64
 import asyncio
 
-from aiossechat import aiosseclient
+from aiossechat import aiosseclient, DefaultSSEType
 from typing import Final, TypeAlias
 from pydub import AudioSegment
 
@@ -122,7 +123,7 @@ class PPSClient:
         *msgs: _AvailableMsgType, 
         conversation_id: str|None=None,
         save_msg: bool = False,
-        return_audio: bool = True,
+        return_audio: bool = False,
         auto_tool: bool = False,
     ):
         '''
@@ -160,6 +161,7 @@ class PPSClient:
             'inputs': inputs,
             'config': config,
             'stream': True,
+            'cache': False,
             'conversation_id': conversation_id
         }
         logger.debug('Start chatting with apikey...' if self.apikey else 'Start chatting with access token...')
@@ -169,24 +171,20 @@ class PPSClient:
             full_audio = b''
             async for e in aiosseclient(self.chat_url, method='post', headers=auth_header, json=body):  # type: ignore
                 event = e.event.lower()
-                if event in ('msg', 'message', 'text'):
-                    for c in e.contents:
-                        if not c.value:
-                            continue
-                        full_text += c.value
-                        await self.on_chat_text_chunk.async_invoke(c.value)
-                elif event in ('audio', 'speech', 'sound', 'voice'):
-                    for c in e.contents:
-                        if not c.value:
-                            continue
-                        data = base64.b64decode(c.value)
-                        full_audio += data
-                        await self.on_chat_audio_chunk.async_invoke(data)
-                elif event in ('emotion', 'emo'):
-                    for c in e.contents:    # actually there should be only one content
-                        if not c.value:
-                            continue
-                        await self.on_emotion.async_invoke(c.value)
+                datas = [c.value for c in e.contents if c.value and c.content_type == DefaultSSEType.DATA]
+                if datas:
+                    if event in ('msg', 'message', 'text'):
+                        for c in datas:
+                            full_text += c
+                            await self.on_chat_text_chunk.async_invoke(c)
+                    elif event in ('audio', 'speech', 'sound', 'voice'):
+                        for c in datas:
+                            data = base64.b64decode(c)
+                            full_audio += data
+                            await self.on_chat_audio_chunk.async_invoke(data)
+                    elif event in ('emotion', 'emo'):
+                        for c in datas:    # actually there should be only one content
+                            await self.on_emotion.async_invoke(c)
             tasks = []
             if full_text:
                 tasks.append(self.on_chat_text.async_invoke(full_text))
@@ -202,13 +200,16 @@ class PPSClient:
             pass
         except Exception as e:
             logger.error(f'{type(e).__name__}: {e}')
-        
+
         
 __all__ = ['PPSClient']
 
 
 if __name__ == '__main__':
-    client = PPSClient(chat_url='https://api.thinkthinksyn.com/tts/ai/chat')
-    client.on_chat_text_chunk.add_listener(logger.debug)
+    from functools import partial
+    print_msg = partial(print, end='')
     
-    asyncio.run(client.chat('hi', return_audio=False))
+    client = PPSClient(chat_url='https://api.thinkthinksyn.com/tts/ai/chat')
+    client.on_chat_text_chunk.add_listener(print_msg)
+    
+    asyncio.run(client.chat('hi', return_audio=True))
